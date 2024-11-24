@@ -5,7 +5,6 @@ import os
 import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -33,18 +32,23 @@ class CryptoMonitor:
         """Inicializa o Chrome WebDriver com configurações para servidor"""
         try:
             chrome_options = Options()
+            
+            # Configurações necessárias para o Chrome no Render
             chrome_options.add_argument('--headless')
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--disable-setuid-sandbox')
+            chrome_options.add_argument(f'--remote-debugging-port={os.getenv("PORT", "10000")}')
             chrome_options.add_argument('--window-size=1920,1080')
-            chrome_options.add_argument('--single-process')
-            chrome_options.binary_location = "/usr/bin/google-chrome"
+            chrome_options.add_argument('--disable-software-rasterizer')
+            chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+            chrome_options.add_argument('--ignore-certificate-errors')
+            chrome_options.add_argument('--disable-extensions')
             
-            # Removida a referência ao Service, deixando o Selenium gerenciar automaticamente
+            # Test message antes de criar o driver
+            logging.info("Iniciando criação do WebDriver...")
+            
             self.driver = webdriver.Chrome(options=chrome_options)
-            
             self.driver.set_page_load_timeout(30)
             self.wait = WebDriverWait(self.driver, 20)
             
@@ -71,6 +75,7 @@ class CryptoMonitor:
                 
                 response = requests.post(url, data=data, timeout=10)
                 response.raise_for_status()
+                logging.info(f"Mensagem enviada com sucesso para o Telegram")
                 return True
             except Exception as e:
                 if attempt == max_retries - 1:
@@ -94,6 +99,7 @@ class CryptoMonitor:
     def check_updates(self):
         """Verifica todas as atualizações na página"""
         try:
+            logging.info("Verificando atualizações...")
             table = self.driver.find_element(By.CLASS_NAME, "table")
             rows = table.find_elements(By.TAG_NAME, "tr")[1:]
             
@@ -129,6 +135,7 @@ class CryptoMonitor:
                     continue
             
             self.last_processed = current_entries
+            logging.info(f"Verificação concluída. {len(current_entries)} entradas processadas")
                     
         except Exception as e:
             logging.error(f"Erro ao verificar atualizações: {e}")
