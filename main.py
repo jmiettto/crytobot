@@ -42,12 +42,8 @@ class CryptoMonitor:
             chrome_options.add_argument('--single-process')
             chrome_options.binary_location = "/usr/bin/google-chrome"
             
-            service = Service("/usr/bin/google-chrome")
-            
-            self.driver = webdriver.Chrome(
-                service=service,
-                options=chrome_options
-            )
+            # Removida a referência ao Service, deixando o Selenium gerenciar automaticamente
+            self.driver = webdriver.Chrome(options=chrome_options)
             
             self.driver.set_page_load_timeout(30)
             self.wait = WebDriverWait(self.driver, 20)
