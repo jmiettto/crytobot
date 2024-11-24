@@ -1,22 +1,43 @@
 FROM python:3.9-slim
 
-# Instala dependências
+# Instala dependências necessárias
 RUN apt-get update && apt-get install -y \
     wget \
-    unzip \
-    gnupg \
-    curl \
+    gnupg2 \
+    apt-transport-https \
+    ca-certificates \
+    libxss1 \
+    libappindicator1 \
+    libindicator7 \
     xvfb \
+    unzip \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libnspr4 \
+    libnss3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Instala Google Chrome
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/googlechrome-linux-keyring.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/googlechrome-linux-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list \
+# Instala Chrome
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y google-chrome-stable \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
-# Configura o diretório de trabalho
+# Define o diretório de trabalho
 WORKDIR /app
 
 # Copia os arquivos do projeto
@@ -25,11 +46,9 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-# Configura variáveis de ambiente
+# Define variáveis de ambiente
 ENV PYTHONUNBUFFERED=1
-ENV DISPLAY=:99
-ENV CHROME_BIN=/usr/bin/google-chrome
-ENV CHROME_PATH=/usr/bin/google-chrome
+ENV PORT=10000
 
-# Executa o bot
+# Inicia o script
 CMD ["python", "main.py"]
