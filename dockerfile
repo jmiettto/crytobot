@@ -1,25 +1,20 @@
 FROM python:3.9-slim
 
-# Instala dependências necessárias
+# Instala dependências
 RUN apt-get update && apt-get install -y \
     wget \
-    gnupg \
     unzip \
-    curl
-
-# Instala Google Chrome
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
-    && apt-get clean \
+    gnupg \
+    curl \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# Instala ChromeDriver
-RUN wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip \
-    && unzip /tmp/chromedriver.zip -d /usr/local/bin/ \
-    && rm /tmp/chromedriver.zip \
-    && chmod +x /usr/local/bin/chromedriver
+# Instala Google Chrome
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/googlechrome-linux-keyring.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/googlechrome-linux-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && apt-get clean
 
 # Configura o diretório de trabalho
 WORKDIR /app
@@ -32,9 +27,9 @@ COPY . .
 
 # Configura variáveis de ambiente
 ENV PYTHONUNBUFFERED=1
-ENV PRODUCTION=true
-ENV GOOGLE_CHROME_BIN=/usr/bin/google-chrome
-ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
+ENV DISPLAY=:99
+ENV CHROME_BIN=/usr/bin/google-chrome
+ENV CHROME_PATH=/usr/bin/google-chrome
 
 # Executa o bot
 CMD ["python", "main.py"]
