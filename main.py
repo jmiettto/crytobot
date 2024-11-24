@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 import time
+import os
 import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -9,61 +10,77 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import WebDriverException
-from webdriver_manager.chrome import ChromeDriverManager
 
 class CryptoMonitor:
-    def __init__(self, telegram_token, telegram_chat_id):
+    def __init__(self):
         # Configuração do logger
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
         
-        # Configurações Telegram
-        self.telegram_token = telegram_token
-        self.telegram_chat_id = telegram_chat_id
-        self.telegram_base_url = f"https://api.telegram.org/bot{telegram_token}"
+        # Configurações do Telegram
+        self.telegram_token = os.getenv('TELEGRAM_TOKEN')
+        self.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
+        self.telegram_base_url = f"https://api.telegram.org/bot{self.telegram_token}"
         
         # Configurações do monitor
         self.base_url = "https://agile-cliffs-23967.herokuapp.com/binance"
         self.driver = None
-        self.last_processed = set()  # Guarda apenas as últimas entradas
+        self.last_processed = set()
             
     def initialize_driver(self):
-        """Inicializa o Chrome WebDriver"""
+        """Inicializa o Chrome WebDriver com configurações para servidor"""
         try:
-            options = Options()
-            options.add_argument('--headless')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--disable-setuid-sandbox')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument('--single-process')
+            chrome_options.binary_location = "/usr/bin/google-chrome"
             
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=options)
+            service = Service("/usr/bin/google-chrome")
+            
+            self.driver = webdriver.Chrome(
+                service=service,
+                options=chrome_options
+            )
+            
             self.driver.set_page_load_timeout(30)
             self.wait = WebDriverWait(self.driver, 20)
             
             logging.info("WebDriver inicializado com sucesso")
             return True
+            
         except Exception as e:
-            logging.error(f"Erro ao inicializar WebDriver: {e}")
+            logging.error(f"Erro ao inicializar WebDriver: {str(e)}")
+            if self.driver:
+                self.driver.quit()
             return False
             
     def send_telegram_message(self, text):
-        """Envia mensagem para o Telegram"""
-        try:
-            url = f"{self.telegram_base_url}/sendMessage"
-            data = {
-                "chat_id": self.telegram_chat_id,
-                "text": text,
-                "parse_mode": "HTML"
-            }
-            
-            response = requests.post(url, data=data, timeout=10)
-            response.raise_for_status()
-            return True
-        except Exception as e:
-            logging.error(f"Erro ao enviar mensagem Telegram: {e}")
-            return False
+        """Envia mensagem para o Telegram com retry"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                url = f"{self.telegram_base_url}/sendMessage"
+                data = {
+                    "chat_id": self.telegram_chat_id,
+                    "text": text,
+                    "parse_mode": "HTML"
+                }
+                
+                response = requests.post(url, data=data, timeout=10)
+                response.raise_for_status()
+                return True
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logging.error(f"Erro ao enviar mensagem Telegram: {e}")
+                    return False
+                time.sleep(2 ** attempt)
             
     def format_coin_message(self, coin_data):
         """Formata a mensagem com os dados da moeda"""
@@ -82,7 +99,7 @@ class CryptoMonitor:
         """Verifica todas as atualizações na página"""
         try:
             table = self.driver.find_element(By.CLASS_NAME, "table")
-            rows = table.find_elements(By.TAG_NAME, "tr")[1:]  # Pula o cabeçalho
+            rows = table.find_elements(By.TAG_NAME, "tr")[1:]
             
             current_entries = set()
             
@@ -103,11 +120,9 @@ class CryptoMonitor:
                         'timestamp': cols[7].text
                     }
                     
-                    # Cria uma chave única para cada entrada
                     entry_key = f"{coin_data['coin']}_{coin_data['timestamp']}"
                     current_entries.add(entry_key)
                     
-                    # Se é uma nova entrada que não vimos antes
                     if entry_key not in self.last_processed:
                         message = self.format_coin_message(coin_data)
                         self.send_telegram_message(message)
@@ -117,7 +132,6 @@ class CryptoMonitor:
                     logging.error(f"Erro ao processar linha: {e}")
                     continue
             
-            # Atualiza o conjunto de entradas processadas
             self.last_processed = current_entries
                     
         except Exception as e:
@@ -127,48 +141,50 @@ class CryptoMonitor:
         return True
     
     def run(self):
-        """Executa o monitor"""
-        if not self.initialize_driver():
-            return
-            
-        try:
-            logging.info("Iniciando monitoramento...")
-            self.driver.get(self.base_url)
-            
-            # Aguarda o carregamento inicial da página
-            self.wait.until(EC.presence_of_element_located((By.CLASS_NAME, "table")))
-            
-            while True:
-                try:
-                    self.check_updates()
-                    time.sleep(10)  # Verifica a cada 10 segundos
+        """Executa o monitor com proteção contra erros"""
+        retry_count = 0
+        max_retries = 5
+        
+        while retry_count < max_retries:
+            try:
+                if not self.initialize_driver():
+                    retry_count += 1
+                    time.sleep(60)
+                    continue
                     
-                except WebDriverException:
-                    logging.error("Erro no WebDriver, tentando reconectar...")
+                logging.info("Iniciando monitoramento...")
+                self.driver.get(self.base_url)
+                
+                self.wait.until(EC.presence_of_element_located((By.CLASS_NAME, "table")))
+                retry_count = 0
+                
+                while True:
+                    try:
+                        self.check_updates()
+                        time.sleep(10)
+                        
+                    except WebDriverException:
+                        logging.error("Erro no WebDriver, tentando reconectar...")
+                        raise
+                        
+            except Exception as e:
+                logging.error(f"Erro no loop principal: {e}")
+                retry_count += 1
+                
+                if self.driver:
                     self.driver.quit()
-                    if not self.initialize_driver():
-                        break
-                    self.driver.get(self.base_url)
-                    time.sleep(5)
+                    self.driver = None
+                
+                if retry_count < max_retries:
+                    sleep_time = min(300, 60 * retry_count)
+                    logging.info(f"Tentando reconexão em {sleep_time} segundos...")
+                    time.sleep(sleep_time)
+                else:
+                    logging.error("Número máximo de tentativas excedido")
+                    break
                     
-        except KeyboardInterrupt:
-            logging.info("Monitoramento interrompido pelo usuário")
-        except Exception as e:
-            logging.error(f"Erro fatal: {e}")
-        finally:
-            if self.driver:
-                self.driver.quit()
-            logging.info("Monitoramento finalizado")
+        logging.info("Monitoramento finalizado")
 
 if __name__ == "__main__":
-    # Configurações
-    TELEGRAM_TOKEN = "8128618696:AAFYD-LPrR6jZXkkx4y7TnJoZqymjBeJqIg"
-    TELEGRAM_CHAT_ID = "6347487922"
-    
-    # Iniciar o monitor
-    monitor = CryptoMonitor(
-        telegram_token=TELEGRAM_TOKEN,
-        telegram_chat_id=TELEGRAM_CHAT_ID
-    )
-    
+    monitor = CryptoMonitor()
     monitor.run()
